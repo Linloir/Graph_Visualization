@@ -9,31 +9,139 @@ MyGraphicsView::MyGraphicsView(QWidget *parent) :
     myGraphicsScene = new QGraphicsScene();
     this->setScene(myGraphicsScene);
     this->setRenderHint(QPainter::Antialiasing);
+    this->setCursor(Qt::CrossCursor);
 }
 
 void MyGraphicsView::mousePressEvent(QMouseEvent *event){
-    if(event->button() == Qt::LeftButton)
-        emit mouseLeftClicked(mapToScene(event->pos()));
-    //else if(event->button() == Qt::RightButton)
-    //    emit mouseRightClicked(mapToScene(event->pos()));
-    else{
-        MyGraphicsVexItem *newDot = new MyGraphicsVexItem(mapToScene(event->pos()), 10);
-        this->scene()->addItem(newDot);
-        newDot->estConnection(this);
-        newDot->showAnimation();
+    if(itemState & ADD){
+        if(event->button() == Qt::LeftButton){
+            selItem = nullptr;
+            emit mouseLeftClicked(mapToScene(event->pos()));
+        }
+        else{
+            clearSketch();
+            itemState = selItem == nullptr ? NON : SEL | VEX;
+        }
     }
+    else{
+        itemState = NON;
+        if(event->button() == Qt::LeftButton)
+            emit mouseLeftClicked(mapToScene(event->pos()));
+        else if(event->button() == Qt::RightButton)
+            emit mouseRightClicked(mapToScene(event->pos()));
+    }
+    changeCursor();
 }
 
 void MyGraphicsView::mouseReleaseEvent(QMouseEvent *event){
+    if(itemState == NON){
+        if(selItem == nullptr){
+            //create vex
+            addVex(mapToScene(event->pos()));
+        }
+        else{
+            //deselect
+            selItem = nullptr;
+        }
+    }
+    else if(itemState & ADD){
+        clearSketch();
+        itemState = NON;
+        if(selItem == nullptr){
+            selItem = addVex(mapToScene(event->pos()));
+            ((MyGraphicsVexItem*)selItem)->select();
+            addLine(strtVex, (MyGraphicsVexItem*)selItem);
+        }
+        else if(selItem->type() == QGraphicsItem::UserType + 1){
+            addLine(strtVex, (MyGraphicsVexItem*)selItem);
+        }
+        else{
+            itemState = SEL | selItem->type();
+        }
+    }
     emit mouseReleased();
+    changeCursor();
 }
 
 void MyGraphicsView::mouseMoveEvent(QMouseEvent *event){
+    changeCursor();
     emit mouseMoved(mapToScene(event->pos()));
+    if(itemState & ADD){
+        clearSketch();
+        sketchLine(strtVex->scenePos() + strtVex->rect().center(), mapToScene(event->pos()));
+    }
 }
 
-void MyGraphicsView::vexSelected(MyGraphicsVexItem *sel){
-    selVex = sel;
+void MyGraphicsView::changeCursor(){
+
+}
+
+MyGraphicsVexItem* MyGraphicsView::addVex(QPointF center, qreal radius){
+    MyGraphicsVexItem *newVex = new MyGraphicsVexItem(center, radius);
+    this->scene()->addItem(newVex);
+    newVex->estConnection(this);
+    newVex->showAnimation();
+    return newVex;
+}
+
+void MyGraphicsView::clearSketch(){
+    if(sketchItem != nullptr){
+        scene()->removeItem(sketchItem);
+        sketchItem = nullptr;
+    }
+}
+
+void MyGraphicsView::sketchLine(QPointF start, QPointF end){
+    QGraphicsLineItem *newLine = new QGraphicsLineItem(start.x(), start.y(), end.x(), end.y());
+    QPen pen;
+    pen.setWidth(3);
+    pen.setStyle(Qt::DashLine);
+    pen.setBrush(QColor(58, 143, 192, 100));
+    pen.setCapStyle(Qt::RoundCap);
+    newLine->setPen(pen);
+    scene()->addItem(newLine);
+    newLine->stackBefore(selItem);
+    sketchItem = newLine;
+}
+
+void MyGraphicsView::addLine(MyGraphicsVexItem *start, MyGraphicsVexItem *end){
+    MyGraphicsLineItem *newLine = new MyGraphicsLineItem(start, end, true);
+    scene()->addItem(newLine);
+    newLine->estConnection(this);
+    newLine->refrshLine();
+    newLine->setZValue(--zValue);
+    start->addStartLine(newLine);
+    end->addEndLine(newLine);
+}
+
+void MyGraphicsView::setHover(bool in){
+    if(in)
+        mouseState |= ON_HOVER;
+    else
+        mouseState &= ~ON_HOVER;
+}
+
+void MyGraphicsView::setSel(QGraphicsItem *sel){
+    int state = SEL | (sel->type() - QGraphicsItem::UserType);
+    if(itemState == NON){
+        itemState = state;
+        selItem = sel;
+    }
+    else if(itemState & SEL){
+        if(itemState > state){
+            itemState = state;
+            selItem = sel;
+        }
+    }
+    else if(itemState & ADD){
+        if(selItem == nullptr || selItem->type() > sel->type())
+            selItem = sel;
+    }
+}
+
+void MyGraphicsView::startLine(MyGraphicsVexItem *startVex){
+    itemState = ADD | LINE;
+    strtVex = startVex;
 }
 
 //MyGraphicsVexItem
@@ -42,7 +150,7 @@ MyGraphicsVexItem::MyGraphicsVexItem(QPointF _center, qreal _r, QGraphicsItem *p
     center(_center),
     radius(_r){
     this->setPen(Qt::NoPen);
-    this->setBrush(Qt::blue);
+    this->setBrush(regBrush);
 }
 
 void MyGraphicsVexItem::showAnimation(){
@@ -60,11 +168,11 @@ void MyGraphicsVexItem::showAnimation(){
     });
     curAnimation = timeLine;
     startAnimation();
-    connect(timeLine, &QTimeLine::finished, [this](){this->state = UNDEFINED;});
+    connect(timeLine, &QTimeLine::finished, [this](){this->state &= ~PREPARING;});
     //timeLine->start();
 }
 
-void MyGraphicsVexItem::hoverInAnimation(){
+void MyGraphicsVexItem::hoverInEffect(){
     stopAnimation();
     QTimeLine *timeLine = new QTimeLine(300, this);
     timeLine->setFrameRange(0, 100);
@@ -81,7 +189,7 @@ void MyGraphicsVexItem::hoverInAnimation(){
     startAnimation();
 }
 
-void MyGraphicsVexItem::hoverOutAnimation(){
+void MyGraphicsVexItem::hoverOutEffect(){
     stopAnimation();
     QTimeLine *timeLine = new QTimeLine(300, this);
     timeLine->setFrameRange(0, 100);
@@ -97,7 +205,7 @@ void MyGraphicsVexItem::hoverOutAnimation(){
     startAnimation();
 }
 
-void MyGraphicsVexItem::clickAnimation(){
+void MyGraphicsVexItem::onClickEffect(){
     stopAnimation();
     //QTimeLine *timeLine = new QTimeLine(30, this);
     //timeLine->setFrameRange(0, 30);
@@ -115,7 +223,7 @@ void MyGraphicsVexItem::clickAnimation(){
     this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
 }
 
-void MyGraphicsVexItem::releaseAnimation(){
+void MyGraphicsVexItem::onReleaseEffect(){
     stopAnimation();
     QTimeLine *timeLine = new QTimeLine(300, this);
     timeLine->setFrameRange(0, 100);
@@ -145,29 +253,55 @@ void MyGraphicsVexItem::stopAnimation(){
     }
 }
 
+void MyGraphicsVexItem::move(QPointF position){
+    QPointF displacement = position - (this->scenePos() + this->rect().center());
+    this->setRect(QRectF(this->rect().x() + displacement.x(), this->rect().y() + displacement.y(), this->rect().width(), this->rect().height()));
+    center = center + displacement;
+    for(int i = 0; i < linesStartWith.size(); i++)
+        linesStartWith[i]->moveStart(this);
+    for(int i = 0; i < linesEndWith.size(); i++)
+        linesEndWith[i]->moveEnd(this);
+}
+
 void MyGraphicsVexItem::estConnection(MyGraphicsView* view){
     connect(view, SIGNAL(mouseMoved(QPointF)), this, SLOT(onMouseMove(QPointF)));
     connect(view, SIGNAL(mouseLeftClicked(QPointF)), this, SLOT(onLeftClick(QPointF)));
     connect(view, SIGNAL(mouseRightClicked(QPointF)), this, SLOT(onRightClick(QPointF)));
     connect(view, SIGNAL(mouseReleased()), this, SLOT(onMouseRelease()));
-    connect(this, SIGNAL(selected(MyGraphicsVexItem*)), view, SLOT(vexSelected(MyGraphicsVexItem*)));
+    connect(this, SIGNAL(setHover(bool)), view, SLOT(setHover(bool)));
+    connect(this, SIGNAL(selected(QGraphicsItem*)), view, SLOT(setSel(QGraphicsItem*)));
+    connect(this, SIGNAL(lineFrom(MyGraphicsVexItem*)), view, SLOT(startLine(MyGraphicsVexItem*)));
+    connect(this, SIGNAL(menuStateChanged(QGraphicsItem*, bool)), view, SLOT(setMenu(QGraphicsItem*, bool)));
+}
+
+void MyGraphicsVexItem::select(){
+    state = ON_SELECTED;
+    this->setBrush(selBrush);
+    emit selected(this);
 }
 
 void MyGraphicsVexItem::onMouseMove(QPointF position){
     if(state & PREPARING)
         return;
-    if(this->contains(position)){
-        emit mouseOn(this);
-        if((state & ON_HOVER) == 0){
-            hoverInAnimation();
-            state |= ON_HOVER;
+    if((state & ON_LEFT_CLICK) == 0){
+        if(this->contains(position)){
+            if((state & ON_HOVER) == 0){
+                emit setHover(true);
+                hoverInEffect();
+                state |= ON_HOVER;
+            }
+        }
+        else{
+            if(state & ON_HOVER){
+                emit setHover(false);
+                hoverOutEffect();
+                state &= ~ON_HOVER;
+            }
         }
     }
     else{
-        if(state & ON_HOVER){
-            hoverOutAnimation();
-            state &= !ON_HOVER;
-        }
+        move(position);
+        state &= ~ON_SELECTED;
     }
 }
 
@@ -179,9 +313,11 @@ void MyGraphicsVexItem::onLeftClick(QPointF position){
     if(this->contains(position)){
         emit selected(this);
         state |= ON_LEFT_CLICK;
-        clickAnimation();
+        onClickEffect();
     }
     else{
+        if(state & ON_SELECTED)
+            this->setBrush(regBrush);
         state &= UNDEFINED;
     }
 }
@@ -193,9 +329,11 @@ void MyGraphicsVexItem::onRightClick(QPointF position){
         return;
     if(this->contains(position)){
         state |= ON_RIGHT_CLICK;
-        clickAnimation();
+        onClickEffect();
     }
     else{
+        if(state & ON_SELECTED)
+            this->setBrush(regBrush);
         state &= UNDEFINED;
     }
 }
@@ -204,7 +342,203 @@ void MyGraphicsVexItem::onMouseRelease(){
     if(state & PREPARING)
         return;
     if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK)){
+        if(state & ON_SELECTED){
+            if(state & ON_LEFT_CLICK)
+                emit lineFrom(this);
+        }
+        else{
+            this->setBrush(selBrush);
+            if(state & ON_LEFT_CLICK)
+                state |= ON_SELECTED;
+        }
         state &= ~(ON_LEFT_CLICK | ON_RIGHT_CLICK);
-        releaseAnimation();
+        onReleaseEffect();
+    }
+}
+
+/********************************************************/
+
+MyGraphicsLineItem::MyGraphicsLineItem(MyGraphicsVexItem *start, MyGraphicsVexItem *end, bool hasDir, QGraphicsItem *parent) :
+    QGraphicsLineItem(parent),
+    hasDirection(hasDir),
+    startVex(start),
+    endVex(end){
+    //Set display effect
+    defaultPen.setWidth(lineWidth);
+    defaultPen.setStyle(lineStyle);
+    defaultPen.setCapStyle(capStyle);
+    defaultPen.setColor(defaultColor);
+    this->setPen(defaultPen);
+}
+
+void MyGraphicsLineItem::refrshLine(){
+    delArrow();
+    QPointF startPos = startVex->scenePos() + startVex->rect().center();
+    QPointF endPos = endVex->scenePos() + endVex->rect().center();
+    this->setLine(startPos.x(), startPos.y(), endPos.x(), endPos.y());
+    this->setPen(defaultPen);
+    if(hasDirection)
+        drawArrow();
+}
+
+void MyGraphicsLineItem::drawArrow(){
+    QPointF sP = startVex->scenePos() + startVex->rect().center();
+    QPointF eP = endVex->scenePos() + endVex->rect().center();
+    QPointF dP = eP - sP;
+
+    qreal angle = atan2(dP.y(), dP.x());
+    eP -= QPointF(endVex->getRadius() * cos(angle), endVex->getRadius() * sin(angle));
+    QPointF leftEnd = QPointF(eP.x() - cos(angle - M_PI / 6) * arrowLength, eP.y() - sin(angle - M_PI / 6) * arrowLength);
+    QPointF rightEnd = QPointF(eP.x() - cos(angle + M_PI / 6) * arrowLength, eP.y() - sin(angle + M_PI / 6) * arrowLength);
+
+    QPainterPath arrowPath;
+    arrowPath.moveTo(leftEnd);
+    arrowPath.lineTo(eP);
+    arrowPath.lineTo(rightEnd);
+
+    QGraphicsPathItem* arrowItem = new QGraphicsPathItem(arrowPath);
+    arrowItem->setPen(defaultPen);
+    this->scene()->addItem(arrowItem);
+    arrow = arrowItem;
+}
+
+void MyGraphicsLineItem::delArrow(){
+    if(arrow != nullptr){
+        this->scene()->removeItem(arrow);
+        arrow = nullptr;
+    }
+}
+
+void MyGraphicsLineItem::estConnection(MyGraphicsView *view){
+    connect(view, SIGNAL(mouseMoved(QPointF)), this, SLOT(onMouseMove(QPointF)));
+    connect(view, SIGNAL(mouseLeftClicked(QPointF)), this, SLOT(onLeftClick(QPointF)));
+    connect(view, SIGNAL(mouseRightClicked(QPointF)), this, SLOT(onRightClick(QPointF)));
+    connect(view, SIGNAL(mouseReleased()), this, SLOT(onMouseRelease()));
+    connect(this, SIGNAL(setHover(bool)), view, SLOT(setHover(bool)));
+    connect(this, SIGNAL(selected(QGraphicsItem*)), view, SLOT(setSel(QGraphicsItem*)));
+    connect(this, SIGNAL(menuStateChanged(QGraphicsItem*, bool)), view, SLOT(setMenu(QGraphicsItem*, bool)));
+}
+
+void MyGraphicsLineItem::reverseDirection(){
+    delArrow();
+    MyGraphicsVexItem *temp = startVex;
+    startVex = endVex;
+    endVex = temp;
+    refrshLine();
+}
+
+void MyGraphicsLineItem::moveStart(MyGraphicsVexItem *start){
+    delArrow();
+    startVex = start;
+    refrshLine();
+}
+
+void MyGraphicsLineItem::moveEnd(MyGraphicsVexItem *end){
+    delArrow();
+    endVex = end;
+    refrshLine();
+}
+
+void MyGraphicsLineItem::setDirection(bool hasDir){
+    hasDirection = hasDir;
+    refrshLine();
+}
+
+void MyGraphicsLineItem::hoverInEffect(){
+    QPen pen = this->pen();
+    pen.setWidth(lineWidth + 1);
+    pen.setColor(hoverColor);
+    this->setPen(pen);
+    if(arrow != nullptr)
+        arrow->setPen(pen);
+}
+
+void MyGraphicsLineItem::hoverOutEffect(){
+    this->setPen(defaultPen);
+    if(arrow != nullptr)
+        arrow->setPen(defaultPen);
+}
+
+void MyGraphicsLineItem::onClickEffect(){
+    QPen pen = this->pen();
+    pen.setColor(selColor);
+    pen.setWidth(lineWidth - 0.5);
+    this->setPen(pen);
+    if(arrow != nullptr)
+        arrow->setPen(pen);
+}
+
+void MyGraphicsLineItem::onReleaseEffect(){
+    QPen pen = this->pen();
+    pen.setWidth(lineWidth);
+    this->setPen(pen);
+    if(arrow != nullptr)
+        arrow->setPen(pen);
+}
+
+void MyGraphicsLineItem::onMouseMove(QPointF position){
+    if(this->contains(position)){
+        emit setHover(true);
+        hoverInEffect();
+        state |= ON_HOVER;
+    }
+    else{
+        if(state & ON_HOVER){
+            emit setHover(false);
+            hoverOutEffect();
+            state &= ~ON_HOVER;
+        }
+    }
+}
+
+void MyGraphicsLineItem::onLeftClick(QPointF position){
+    if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK))
+        return;
+    if(this->contains(position)){
+        emit selected(this);
+        onClickEffect();
+        state |= ON_LEFT_CLICK;
+    }
+    else{
+        if(state & ON_SELECTED){
+            deSelectEffect();
+        }
+        state &= UNDEFINED;
+    }
+}
+
+void MyGraphicsLineItem::onRightClick(QPointF position){
+    if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK))
+        return;
+    if(this->contains(position)){
+        emit selected(this);
+        onClickEffect();
+        state |= ON_RIGHT_CLICK;
+    }
+    else{
+        if(state & ON_MENU){
+            emit menuStateChanged(this, false);
+            state &= ~ON_MENU;
+        }
+        else if(state & ON_SELECTED){
+            deSelectEffect();
+            state &= ~ON_SELECTED;
+        }
+        else
+            state &= UNDEFINED;
+    }
+}
+
+void MyGraphicsLineItem::onMouseRelease(){
+    if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK)){
+        onReleaseEffect();
+        if((state & ON_SELECTED) == 0)
+            onSelectEffect();
+        if(state & ON_RIGHT_CLICK){
+            emit menuStateChanged(this, true);
+            state |= ON_MENU;
+        }
+        state |= ON_SELECTED;
+        state &= ~(ON_LEFT_CLICK | ON_RIGHT_CLICK);
     }
 }

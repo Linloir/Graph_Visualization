@@ -1,0 +1,4 @@
+#ifndef GRAPH_IMPLEMENT_H
+#define GRAPH_IMPLEMENT_H
+
+#endif // GRAPH_IMPLEMENT_H
