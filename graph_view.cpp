@@ -2,8 +2,9 @@
 #include <QDebug>
 
 //MyGraphicsView
-MyGraphicsView::MyGraphicsView(QWidget *parent) :
-    QGraphicsView(parent){
+MyGraphicsView::MyGraphicsView(int _type, QWidget *parent) :
+    QGraphicsView(parent),
+    type(_type){
     this->setMouseTracking(true);
     this->setBackgroundBrush(Qt::transparent);
     myGraphicsScene = new QGraphicsScene();
@@ -12,7 +13,32 @@ MyGraphicsView::MyGraphicsView(QWidget *parent) :
     this->setCursor(Qt::CrossCursor);
 }
 
+void MyGraphicsView::nextAni(){
+    if(aniQueue.size() > 0){
+        QTimeLine *next = aniQueue.front();
+        curAni = next;
+        aniQueue.pop_front();
+        connect(next, &QTimeLine::finished, [=](){nextAni(); next->deleteLater();});
+        next->start();
+    }
+    else{
+        onAni = false;
+        curAni = nullptr;
+    }
+}
+
 void MyGraphicsView::mousePressEvent(QMouseEvent *event){
+    if(hasVisitedItem){
+        emit visitClear();
+        if(curAni){
+            curAni->stop();
+            curAni->deleteLater();
+            curAni = nullptr;
+            onAni = false;
+        }
+        aniQueue.clear();
+        hasVisitedItem = false;
+    }
     if(itemState & ADD){
         if(event->button() == Qt::LeftButton){
             selItem = nullptr;
@@ -27,8 +53,10 @@ void MyGraphicsView::mousePressEvent(QMouseEvent *event){
         itemState = NON;
         if(event->button() == Qt::LeftButton)
             emit mouseLeftClicked(mapToScene(event->pos()));
-        else if(event->button() == Qt::RightButton)
+        else if(event->button() == Qt::RightButton){
             emit mouseRightClicked(mapToScene(event->pos()));
+            onRightPress = true;
+        }
     }
     changeCursor();
 }
@@ -37,11 +65,17 @@ void MyGraphicsView::mouseReleaseEvent(QMouseEvent *event){
     if(itemState == NON){
         if(selItem == nullptr){
             //create vex
-            addVex(mapToScene(event->pos()));
+            if(onRightPress)
+                onRightPress = false;
+            else
+                addVex(mapToScene(event->pos()));
         }
         else{
             //deselect
-            selItem = nullptr;
+            if(event->buttons() == 0)
+                selItem = nullptr;
+            else if(selItem != nullptr)
+                itemState |= SEL;
         }
     }
     else if(itemState & ADD){
@@ -81,6 +115,7 @@ MyGraphicsVexItem* MyGraphicsView::addVex(QPointF center, qreal radius){
     this->scene()->addItem(newVex);
     newVex->estConnection(this);
     newVex->showAnimation();
+    emit vexAdded(newVex);
     return newVex;
 }
 
@@ -105,13 +140,19 @@ void MyGraphicsView::sketchLine(QPointF start, QPointF end){
 }
 
 void MyGraphicsView::addLine(MyGraphicsVexItem *start, MyGraphicsVexItem *end){
-    MyGraphicsLineItem *newLine = new MyGraphicsLineItem(start, end, true);
+    MyGraphicsLineItem *newLine = new MyGraphicsLineItem(start, end, type == DG);
     scene()->addItem(newLine);
     newLine->estConnection(this);
     newLine->refrshLine();
     newLine->setZValue(--zValue);
     start->addStartLine(newLine);
     end->addEndLine(newLine);
+
+    emit arcAdded(newLine);
+}
+
+MyGraphicsVexItem* MyGraphicsView::selectedVex(){
+    return selItem ? (selItem->type() == QGraphicsItem::UserType + 1 ? (MyGraphicsVexItem*)selItem : nullptr) : nullptr;
 }
 
 void MyGraphicsView::setHover(bool in){
@@ -144,11 +185,31 @@ void MyGraphicsView::startLine(MyGraphicsVexItem *startVex){
     strtVex = startVex;
 }
 
-//MyGraphicsVexItem
+void MyGraphicsView::setMenu(QGraphicsItem *target, bool display){
+    qDebug() << "setting";
+    if(display){
+        itemState |= SEL;
+        selItem = target;
+    }
+}
+
+void MyGraphicsView::addAnimation(QTimeLine *ani){
+    aniQueue.push_back(ani);
+    if(!onAni){
+        onAni = true;
+        nextAni();
+    }
+}
+
+/*****************************************************************************/
+
+unsigned int MyGraphicsVexItem::internalID = 0;
+
 MyGraphicsVexItem::MyGraphicsVexItem(QPointF _center, qreal _r, QGraphicsItem *parent) :
     QGraphicsEllipseItem(_center.x() - 0.5, _center.y() - 0.5, 1, 1, parent),
     center(_center),
     radius(_r){
+    id = internalID++;
     this->setPen(Qt::NoPen);
     this->setBrush(regBrush);
 }
@@ -272,12 +333,44 @@ void MyGraphicsVexItem::estConnection(MyGraphicsView* view){
     connect(this, SIGNAL(selected(QGraphicsItem*)), view, SLOT(setSel(QGraphicsItem*)));
     connect(this, SIGNAL(lineFrom(MyGraphicsVexItem*)), view, SLOT(startLine(MyGraphicsVexItem*)));
     connect(this, SIGNAL(menuStateChanged(QGraphicsItem*, bool)), view, SLOT(setMenu(QGraphicsItem*, bool)));
+    connect(this, SIGNAL(addAnimation(QTimeLine*)), view, SLOT(addAnimation(QTimeLine*)));
 }
 
 void MyGraphicsVexItem::select(){
     state = ON_SELECTED;
     this->setBrush(selBrush);
     emit selected(this);
+}
+
+void MyGraphicsVexItem::visit(bool visited){
+    if(visited){
+        QTimeLine *visitEffect = new QTimeLine;
+        visitEffect->setDuration(1000);
+        visitEffect->setFrameRange(0, 200);
+        QEasingCurve curveIn = QEasingCurve::InElastic;
+        QEasingCurve curveOut = QEasingCurve::OutBounce;
+        connect(visitEffect, &QTimeLine::frameChanged, this, [=](int frame){
+            if(frame > 100)
+                this->setBrush(visitedBrush);
+            if(frame < 100){
+                qreal curProgress = curveIn.valueForProgress(frame / 100.0);
+                qreal curRadius = radius + 0.3 * radius * curProgress;
+                this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
+            }
+            else{
+                qreal curProgress = curveOut.valueForProgress((frame - 100.0) / 100.0);
+                qreal curRadius = 1.3 * radius - 0.3 * radius * curProgress;
+                this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
+            }
+        });
+        emit addAnimation(visitEffect);
+    }
+    else{
+        if(state & ON_SELECTED)
+            this->setBrush(selBrush);
+        else
+            this->setBrush(regBrush);
+    }
 }
 
 void MyGraphicsVexItem::onMouseMove(QPointF position){
@@ -316,10 +409,20 @@ void MyGraphicsVexItem::onLeftClick(QPointF position){
         onClickEffect();
     }
     else{
-        if(state & ON_SELECTED)
-            this->setBrush(regBrush);
-        state &= UNDEFINED;
+        if(state & (ON_MENU | ON_SELECTED)){
+            if(state & ON_MENU){
+                emit menuStateChanged(this, false);
+                state &= ~ON_MENU;
+            }
+            if(state & ON_SELECTED){
+                this->setBrush(regBrush);
+                state &= ~ON_SELECTED;
+            }
+        }
+        else
+            state &= UNDEFINED;
     }
+    visit(false);
 }
 
 void MyGraphicsVexItem::onRightClick(QPointF position){
@@ -328,14 +431,28 @@ void MyGraphicsVexItem::onRightClick(QPointF position){
     if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK))
         return;
     if(this->contains(position)){
+        emit selected(this);
         state |= ON_RIGHT_CLICK;
         onClickEffect();
     }
     else{
-        if(state & ON_SELECTED)
-            this->setBrush(regBrush);
-        state &= UNDEFINED;
+        if(state & (ON_MENU | ON_SELECTED)){
+            if(state & ON_MENU){
+                emit menuStateChanged(this, false);
+                state &= ~ON_MENU;
+            }
+            if(state & ON_SELECTED){
+                this->setBrush(regBrush);
+                state &= ~ON_SELECTED;
+            }
+        }
+        else
+            state &= UNDEFINED;
+        //if(state & ON_SELECTED)
+        //    this->setBrush(regBrush);
+        //state &= UNDEFINED;
     }
+    visit(false);
 }
 
 void MyGraphicsVexItem::onMouseRelease(){
@@ -345,11 +462,19 @@ void MyGraphicsVexItem::onMouseRelease(){
         if(state & ON_SELECTED){
             if(state & ON_LEFT_CLICK)
                 emit lineFrom(this);
+            else if(state & ON_RIGHT_CLICK){
+                emit menuStateChanged(this, true);
+                state |= (ON_MENU | ON_SELECTED);
+            }
         }
         else{
             this->setBrush(selBrush);
             if(state & ON_LEFT_CLICK)
                 state |= ON_SELECTED;
+            if(state & ON_RIGHT_CLICK){
+                emit menuStateChanged(this, true);
+                state |= (ON_MENU | ON_SELECTED);
+            }
         }
         state &= ~(ON_LEFT_CLICK | ON_RIGHT_CLICK);
         onReleaseEffect();
@@ -368,26 +493,25 @@ MyGraphicsLineItem::MyGraphicsLineItem(MyGraphicsVexItem *start, MyGraphicsVexIt
     defaultPen.setStyle(lineStyle);
     defaultPen.setCapStyle(capStyle);
     defaultPen.setColor(defaultColor);
-    this->setPen(defaultPen);
+    curPen = defaultPen;
 }
 
 void MyGraphicsLineItem::refrshLine(){
-    delArrow();
-    QPointF startPos = startVex->scenePos() + startVex->rect().center();
-    QPointF endPos = endVex->scenePos() + endVex->rect().center();
-    this->setLine(startPos.x(), startPos.y(), endPos.x(), endPos.y());
-    this->setPen(defaultPen);
-    if(hasDirection)
+    setLengthRate(1);
+    drawLine();
+}
+
+void MyGraphicsLineItem::drawLine(){
+    this->setLine(sP.x(), sP.y(), eP.x(), eP.y());
+    this->setPen(curPen);
+
+    if(hasDirection){
+        delArrow();
         drawArrow();
+    }
 }
 
 void MyGraphicsLineItem::drawArrow(){
-    QPointF sP = startVex->scenePos() + startVex->rect().center();
-    QPointF eP = endVex->scenePos() + endVex->rect().center();
-    QPointF dP = eP - sP;
-
-    qreal angle = atan2(dP.y(), dP.x());
-    eP -= QPointF(endVex->getRadius() * cos(angle), endVex->getRadius() * sin(angle));
     QPointF leftEnd = QPointF(eP.x() - cos(angle - M_PI / 6) * arrowLength, eP.y() - sin(angle - M_PI / 6) * arrowLength);
     QPointF rightEnd = QPointF(eP.x() - cos(angle + M_PI / 6) * arrowLength, eP.y() - sin(angle + M_PI / 6) * arrowLength);
 
@@ -397,7 +521,7 @@ void MyGraphicsLineItem::drawArrow(){
     arrowPath.lineTo(rightEnd);
 
     QGraphicsPathItem* arrowItem = new QGraphicsPathItem(arrowPath);
-    arrowItem->setPen(defaultPen);
+    arrowItem->setPen(curPen);
     this->scene()->addItem(arrowItem);
     arrow = arrowItem;
 }
@@ -409,6 +533,17 @@ void MyGraphicsLineItem::delArrow(){
     }
 }
 
+void MyGraphicsLineItem::setLengthRate(qreal r){
+    sP = startVex->scenePos() + startVex->rect().center();
+    eP = endVex->scenePos() + endVex->rect().center();
+    dP = eP - sP;
+    angle = atan2(dP.y(), dP.x());
+    eP -= QPointF(endVex->getRadius() * cos(angle), endVex->getRadius() * sin(angle));
+    sP += QPointF(endVex->getRadius() * cos(angle), endVex->getRadius() * sin(angle));
+    dP = (eP - sP) * r;
+    eP = sP + dP;
+}
+
 void MyGraphicsLineItem::estConnection(MyGraphicsView *view){
     connect(view, SIGNAL(mouseMoved(QPointF)), this, SLOT(onMouseMove(QPointF)));
     connect(view, SIGNAL(mouseLeftClicked(QPointF)), this, SLOT(onLeftClick(QPointF)));
@@ -417,13 +552,18 @@ void MyGraphicsLineItem::estConnection(MyGraphicsView *view){
     connect(this, SIGNAL(setHover(bool)), view, SLOT(setHover(bool)));
     connect(this, SIGNAL(selected(QGraphicsItem*)), view, SLOT(setSel(QGraphicsItem*)));
     connect(this, SIGNAL(menuStateChanged(QGraphicsItem*, bool)), view, SLOT(setMenu(QGraphicsItem*, bool)));
+    connect(this, SIGNAL(addAnimation(QTimeLine*)), view, SLOT(addAnimation(QTimeLine*)));
 }
 
 void MyGraphicsLineItem::reverseDirection(){
     delArrow();
+    startVex->removeStartLine(this);
+    endVex->removeEndLine(this);
     MyGraphicsVexItem *temp = startVex;
     startVex = endVex;
     endVex = temp;
+    startVex->addStartLine(this);
+    endVex->addEndLine(this);
     refrshLine();
 }
 
@@ -454,14 +594,13 @@ void MyGraphicsLineItem::hoverInEffect(){
 }
 
 void MyGraphicsLineItem::hoverOutEffect(){
-    this->setPen(defaultPen);
+    this->setPen(curPen);
     if(arrow != nullptr)
-        arrow->setPen(defaultPen);
+        arrow->setPen(curPen);
 }
 
 void MyGraphicsLineItem::onClickEffect(){
     QPen pen = this->pen();
-    pen.setColor(selColor);
     pen.setWidth(lineWidth - 0.5);
     this->setPen(pen);
     if(arrow != nullptr)
@@ -469,11 +608,9 @@ void MyGraphicsLineItem::onClickEffect(){
 }
 
 void MyGraphicsLineItem::onReleaseEffect(){
-    QPen pen = this->pen();
-    pen.setWidth(lineWidth);
-    this->setPen(pen);
+    this->setPen(curPen);
     if(arrow != nullptr)
-        arrow->setPen(pen);
+        arrow->setPen(curPen);
 }
 
 void MyGraphicsLineItem::onMouseMove(QPointF position){
@@ -500,11 +637,20 @@ void MyGraphicsLineItem::onLeftClick(QPointF position){
         state |= ON_LEFT_CLICK;
     }
     else{
-        if(state & ON_SELECTED){
-            deSelectEffect();
+        if(state & (ON_MENU | ON_SELECTED)){
+            if(state & ON_MENU){
+                emit menuStateChanged(this, false);
+                state &= ~ON_MENU;
+            }
+            if(state & ON_SELECTED){
+                deSelectEffect();
+                state &= ~ON_SELECTED;
+            }
         }
-        state &= UNDEFINED;
+        else
+            state &= UNDEFINED;
     }
+    visit(false);
 }
 
 void MyGraphicsLineItem::onRightClick(QPointF position){
@@ -516,17 +662,20 @@ void MyGraphicsLineItem::onRightClick(QPointF position){
         state |= ON_RIGHT_CLICK;
     }
     else{
-        if(state & ON_MENU){
-            emit menuStateChanged(this, false);
-            state &= ~ON_MENU;
-        }
-        else if(state & ON_SELECTED){
-            deSelectEffect();
-            state &= ~ON_SELECTED;
+        if(state & (ON_MENU | ON_SELECTED)){
+            if(state & ON_MENU){
+                emit menuStateChanged(this, false);
+                state &= ~ON_MENU;
+            }
+            if(state & ON_SELECTED){
+                deSelectEffect();
+                state &= ~ON_SELECTED;
+            }
         }
         else
             state &= UNDEFINED;
     }
+    visit(false);
 }
 
 void MyGraphicsLineItem::onMouseRelease(){
@@ -540,5 +689,42 @@ void MyGraphicsLineItem::onMouseRelease(){
         }
         state |= ON_SELECTED;
         state &= ~(ON_LEFT_CLICK | ON_RIGHT_CLICK);
+    }
+}
+
+void MyGraphicsLineItem::visit(bool visited){
+    if(visited){
+        QTimeLine *visitEffect = new QTimeLine;
+        visitEffect->setDuration(1000);
+        visitEffect->setFrameRange(0, 200);
+        QEasingCurve curve = QEasingCurve::InOutQuad;QGraphicsLineItem *newLine = new QGraphicsLineItem(sP.x(), sP.y(), eP.x(), eP.y());
+        connect(visitEffect, &QTimeLine::stateChanged, this, [=](){
+            if(visitEffect->state() == QTimeLine::Running){
+                QPen pen;
+                pen.setWidth(3);
+                pen.setStyle(Qt::DashLine);
+                pen.setBrush(QColor(58, 143, 192, 100));
+                pen.setCapStyle(Qt::RoundCap);
+                newLine->setPen(pen);
+                scene()->addItem(newLine);
+                newLine->setZValue(this->zValue() - 1);
+            }
+            else{
+                scene()->removeItem(newLine);
+            }
+        });
+        connect(visitEffect, &QTimeLine::frameChanged, this, [=](int frame){
+            QPen pen = this->pen();
+            pen.setColor(QColor(93, 172, 129));
+            curPen = pen;
+            qreal curProgress = curve.valueForProgress(frame / 200.0);
+            setLengthRate(curProgress);
+            drawLine();
+        });
+        emit addAnimation(visitEffect);
+    }
+    else{
+        curPen = defaultPen;
+        refrshLine();
     }
 }

@@ -4,6 +4,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QMouseEvent>
+#include <QQueue>
 
 //Header for MyVex class
 #include <QGraphicsEllipseItem>
@@ -12,7 +13,6 @@
 //Headers for lines
 #include <QPainter>
 #include <QColor>
-//#include <QPainterPath>
 #include <QGraphicsPathItem>
 
 #include <QTimeLine>
@@ -52,15 +52,23 @@ private:
     };
 
     QGraphicsScene* myGraphicsScene;
+    int type;
 
     int mouseState = NORMAL;
     int itemState = NON;
+    bool onRightPress = false;
 
     QGraphicsItem *selItem = nullptr;
 
     MyGraphicsVexItem *strtVex = nullptr;
     QGraphicsItem *sketchItem = nullptr;
     qreal zValue = -1;
+
+    /* Animation loop */
+    QQueue<QTimeLine*> aniQueue;
+    bool onAni = false;
+    QTimeLine *curAni = nullptr;
+    void nextAni();
 
     void mousePressEvent(QMouseEvent* event);
     void mouseReleaseEvent(QMouseEvent* event);
@@ -74,7 +82,14 @@ private:
     void addLine(MyGraphicsVexItem* start, MyGraphicsVexItem* end);
 
 public:
-    MyGraphicsView(QWidget *parent = nullptr);
+    enum { UDG = 128, DG = 256 };
+
+    /* for visit flag */
+    bool hasVisitedItem = false;
+
+    MyGraphicsView(int _type = UDG, QWidget *parent = nullptr);
+
+    MyGraphicsVexItem* selectedVex();
 
 signals:
     void mouseMoved(QPointF position);
@@ -82,11 +97,17 @@ signals:
     void mouseRightClicked(QPointF position);
     void mouseReleased();
 
+    void vexAdded(MyGraphicsVexItem *vex);
+    void arcAdded(MyGraphicsLineItem *arc);
+    void visitClear();
+
 public slots:
     void setHover(bool in = true);
     void setSel(QGraphicsItem *sel);
     void startLine(MyGraphicsVexItem* startVex);
-    void setMenu(QGraphicsItem *target, bool display = true){}
+    void setMenu(QGraphicsItem *target, bool display = true);
+
+    void addAnimation(QTimeLine *ani);
 
 };
 
@@ -110,8 +131,13 @@ private:
         ON_MENU         = 0b00100000
     };
 
+    static unsigned int internalID;
+public:
+    int id;
+private:
     QBrush regBrush = QBrush(QColor(58, 143, 192));
     QBrush selBrush = QBrush(QColor(208, 90, 110));
+    QBrush visitedBrush = QBrush(QColor(93, 172, 129));
 
     QPointF center;
     qreal radius;
@@ -141,11 +167,14 @@ public:
     void showAnimation();
 
     void select();
-    //void visit(bool visited = true);
+    void visit(bool visited = true);
     //void setText(const QString & text);
     void addStartLine(MyGraphicsLineItem *line){linesStartWith.push_back(line);}
+    void removeStartLine(MyGraphicsLineItem *line){linesStartWith.remove(linesStartWith.indexOf(line));}
     void addEndLine(MyGraphicsLineItem *line){linesEndWith.push_back(line);}
+    void removeEndLine(MyGraphicsLineItem *line){linesEndWith.remove(linesEndWith.indexOf(line));}
 
+    bool equalTo(MyGraphicsVexItem *v){qDebug() << id << " " << v->id;return id == v->id;}
     int type() const override {return Type;}
     qreal getRadius() {return radius;}
 
@@ -154,6 +183,8 @@ signals:
     void selected(QGraphicsItem *sel);
     void lineFrom(MyGraphicsVexItem *start);
     void menuStateChanged(QGraphicsItem *item, bool display = true);
+
+    void addAnimation(QTimeLine *ani);
 
 public slots:
     void onMouseMove(QPointF position);
@@ -198,9 +229,24 @@ private:
     QColor selColor = QColor(208, 90, 110);
     QPen defaultPen;
     QBrush defaultBrush;
+    QPen curPen;
 
+    /* for calculation */
+    qreal angle;
+    QPointF sP, eP, dP;
+
+    void setLengthRate(qreal r=1);
+    void drawLine();
     void drawArrow();
     void delArrow();
+
+    /* effects */
+    void hoverInEffect();
+    void hoverOutEffect();
+    void onClickEffect();
+    void onReleaseEffect();
+    void onSelectEffect(){}
+    void deSelectEffect(){}
 
 public:
     MyGraphicsLineItem(MyGraphicsVexItem *start, MyGraphicsVexItem *end, bool hasDir = false, QGraphicsItem *parent = nullptr);
@@ -217,14 +263,14 @@ public:
     void setDirection(bool hasDir = true);
 
     /* effects */
-    void hoverInEffect();
-    void hoverOutEffect();
-    void onClickEffect();
-    void onReleaseEffect();
-    void onSelectEffect(){}
-    void deSelectEffect(){}
     void startAnimation(){}
     void stopAnimation(){}
+
+    /* retrieve */
+    MyGraphicsVexItem* stVex(){return startVex;}
+    MyGraphicsVexItem* edVex(){return endVex;}
+
+    void visit(bool visited = true);
 
     int type() const override {return Type;}
 
@@ -232,6 +278,8 @@ signals:
     void setHover(bool in = true);
     void selected(QGraphicsItem *sel);
     void menuStateChanged(QGraphicsItem *item, bool display = true);
+
+    void addAnimation(QTimeLine *ani);
 
 private slots:
     void onMouseMove(QPointF position);

@@ -12,12 +12,14 @@ SOURCES += \
     graph_implement.cpp \
     graph_view.cpp \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    mycanvas.cpp
 
 HEADERS += \
     graph_implement.h \
     graph_view.h \
-    mainwindow.h
+    mainwindow.h \
+    mycanvas.h
 
 FORMS += \
     mainwindow.ui
