@@ -68,6 +68,7 @@ private:
     QQueue<QTimeLine*> aniQueue;
     bool onAni = false;
     QTimeLine *curAni = nullptr;
+    qreal speedRate = 1;
     void nextAni();
 
     void mousePressEvent(QMouseEvent* event);
@@ -91,6 +92,8 @@ public:
 
     MyGraphicsVexItem* selectedVex();
     MyGraphicsLineItem* selectedArc();
+
+    void setAniRate(qreal rate){speedRate = rate;}
 
 signals:
     void mouseMoved(QPointF position);

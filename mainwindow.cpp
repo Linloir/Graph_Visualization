@@ -18,6 +18,7 @@ MainWindow::MainWindow(QWidget *parent)
         connect(ui->pushButton_2, SIGNAL(clicked()), newCanvas, SLOT(bfs()));
         connect(ui->spinBox, SIGNAL(valueChanged(int)), newCanvas, SLOT(setWeight(int)));
         connect(ui->dijkstra, SIGNAL(clicked()), newCanvas, SLOT(dijkstra()));
+        connect(ui->horizontalSlider, SIGNAL(valueChanged(int)), newCanvas, SLOT(setAniRate(int)));
         ui->canvasLayout->addWidget(newCanvas);
         ui->del->setEnabled(true);
         connect(ui->del, &QPushButton::clicked, newCanvas, [=](){

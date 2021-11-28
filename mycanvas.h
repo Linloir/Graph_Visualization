@@ -29,6 +29,7 @@ private slots:
     void bfs();
     void dijkstra();
     void setWeight(int w);
+    void setAniRate(int step){view->setAniRate(step / 100.0);}
 
 };
 

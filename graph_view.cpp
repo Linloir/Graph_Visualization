@@ -19,6 +19,7 @@ void MyGraphicsView::nextAni(){
         curAni = next;
         aniQueue.pop_front();
         connect(next, &QTimeLine::finished, [=](){nextAni(); next->deleteLater();});
+        next->setDuration(next->duration() / speedRate);
         next->start();
     }
     else{
