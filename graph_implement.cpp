@@ -8,8 +8,16 @@ void ALVex::visit(){
     visited = true;
 }
 
+void ALVex::access(const QString &hint){
+    info->gVex->access(hint);
+}
+
 void ALArc::visit(){
     gArc->visit(true);
+}
+
+void ALArc::access(){
+    gArc->access();
 }
 
 void ALGraph::AddVex(MyGraphicsVexItem *gvex){
@@ -119,9 +127,53 @@ int ALGraph::GetIdOf(MyGraphicsVexItem *gvex){
     return i == vexList.size() ? -1 : i;
 }
 
+ALArc* ALGraph::FindArc(int sID, int eID){
+    if(sID < 0 || sID >= vexList.size())
+        return nullptr;
+    ALArc *p = vexList[sID].firstArc;
+    while(p != nullptr){
+        if(p->eVexID == eID)
+            return p;
+        p = p->nextArc;
+    }
+    return nullptr;
+}
+
+void ALGraph::SetWeight(MyGraphicsLineItem *garc, int weight){
+    int strtVex = GetIdOf(garc->stVex());
+    int endVex = GetIdOf(garc->edVex());
+    ALArc *p = vexList[strtVex].firstArc;
+    while(p != nullptr){
+        if(p->eVexID == endVex){
+            p->weight = weight;
+            p->gArc->setText(QString::asprintf("%d", weight));
+        }
+        p = p->nextArc;
+    }
+    if(type == UDG){
+        p = vexList[endVex].firstArc;
+        while(p != nullptr){
+            if(p->eVexID == strtVex){
+                p->weight = weight;
+            }
+            p = p->nextArc;
+        }
+    }
+}
+
 void ALGraph::ClearVisit(){
     for(int i = 0; i < vexList.size(); i++){
         vexList[i].visited = false;
+        vexList[i].info->gVex->visit(false);
+    }
+}
+
+void ALGraph::ResetDistance(){
+    for(int i = 0; i < vexList.size(); i++){
+        vexList[i].info->strtVexInfo = nullptr;
+        vexList[i].info->distance = VexInfo::INF;
+        vexList[i].info->preVexID = -1;
+        vexList[i].info->gVex->access("", false);
     }
 }
 
@@ -177,10 +229,60 @@ void ALGraph::BFS(int strtID){
     }
 }
 
+void ALGraph::Dijkstra(int strtID){
+    //Clear previous result
+    ClearVisit();
+    ResetDistance();
+    qDebug() << "strt :" << strtID;
+    //Set start vex info to all vertexes
+    for(int i = 0; i < vexList.size(); i++)
+        vexList[i].info->strtVexInfo = vexList[strtID].info;
+    //Start dijkstra
+    vexList[strtID].info->distance = 0;
+    vexList[strtID].access("strt");
+    while(true){
+        //Find next
+        int minVexID = -1;
+        for(int i = 0; i < vexList.size(); i++){
+            qDebug() << "i = " << i << "dis:" << vexList[i].info->distance;
+            if(vexList[i].visited || vexList[i].info->distance == VexInfo::INF)
+                continue;
+            if(minVexID == -1)
+                minVexID = i;
+            else if(vexList[i].info->distance < vexList[minVexID].info->distance)
+                minVexID = i;
+        }
+        if(minVexID == -1)
+            break;
+        qDebug() << "minVex:" << minVexID;
+        //Set visit to edge and vex
+        ALArc *edge = FindArc(vexList[minVexID].info->preVexID, minVexID);
+        if(edge){
+            if(type == UDG && GetIdOf(edge->gArc->edVex()) != minVexID)
+                edge->gArc->reverseDirection();
+            edge->visit();
+            qDebug() << "visited edge";
+        }
+        vexList[minVexID].visit();
+        qDebug() << "visited vex";
+        //Find adjacent
+        for(ALArc *p = vexList[minVexID].firstArc; p != nullptr; p = p->nextArc){
+            if(!vexList[p->eVexID].visited){
+                p->access();
+                if(vexList[p->eVexID].info->distance == VexInfo::INF ||
+                        vexList[p->eVexID].info->distance > vexList[minVexID].info->distance + p->weight){
+                    vexList[p->eVexID].info->preVexID = minVexID;
+                    vexList[p->eVexID].info->distance = vexList[minVexID].info->distance + p->weight;
+                    vexList[p->eVexID].access(QString::asprintf("%d", vexList[p->eVexID].info->distance));
+                }
+            }
+        }
+    }
+}
+
 /**************************************************************************************/
 
 void AMLGraph::AddVex(MyGraphicsVexItem *gvex){
-    qDebug() << "adding vex" << outVexList.size();
     AMLVex newVex(gvex);
     outVexList.push_back(newVex);
 
@@ -192,8 +294,6 @@ void AMLGraph::AddVex(MyGraphicsVexItem *gvex){
 void AMLGraph::AddArc(MyGraphicsLineItem *garc){
     int strtVex = GetIdOf(garc->stVex());
     int endVex = GetIdOf(garc->edVex());
-
-    qDebug() << "adding" << strtVex << endVex;
 
     AMLArc *nextOutArc = outVexList[strtVex].firstArc;
     AMLArc *nextInArc = type == DG ? inVexList[endVex].firstArc : outVexList[endVex].firstArc;

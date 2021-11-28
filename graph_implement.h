@@ -7,8 +7,12 @@ using namespace std;
 
 class VexInfo{
 public:
+    enum { INF = 2147483647 };
     MyGraphicsVexItem *gVex;
     string text;
+    VexInfo *strtVexInfo = nullptr;
+    int preVexID = -1;
+    int distance = INF;
 
     VexInfo(MyGraphicsVexItem *vex, QString t = "") : gVex(vex), text(t.toStdString()){}
 };
@@ -36,17 +40,19 @@ public:
 
     /* Modify */
     //virtual void SetText(MyGraphicsVexItem *gvex);
-    //virtual void SetWeight(MyGraphicsLineItem *garc);
+    virtual void SetWeight(MyGraphicsLineItem *garc, int weight) = 0;
 
-    virtual int Type() const = 0;
-
-public:
     /* Other Function */
     virtual void ClearVisit() = 0;
+    virtual void ResetDistance() = 0;
     virtual void DFS(int strtID) = 0;
     virtual void DFS(MyGraphicsVexItem *strtVex) = 0;
     virtual void BFS(int strtID) = 0;
     virtual void BFS(MyGraphicsVexItem *strtVex) = 0;
+    virtual void Dijkstra(int strtID) = 0;
+    virtual void Dijkstra(MyGraphicsVexItem *strtVex) = 0;
+
+    virtual int Type() const = 0;
 };
 
 /* Classes of ALGraph */
@@ -65,6 +71,7 @@ public:
     ALVex(MyGraphicsVexItem *vex){info = new VexInfo(vex);}
     bool equalTo(const ALVex &v){return info == v.info;}
     void visit();
+    void access(const QString &hint = "");
 };
 
 class ALArc{
@@ -76,6 +83,7 @@ public:
 
     ALArc(MyGraphicsLineItem *garc, int eVex, ALArc *next = nullptr) : gArc(garc), eVexID(eVex), nextArc(next){}
     void visit();
+    void access();
 };
 
 class ALGraph : public AbstractGraph{
@@ -96,14 +104,20 @@ public:
 
     /* Find */
     int GetIdOf(MyGraphicsVexItem *gvex);
+    ALArc* FindArc(int sID, int eID);
+
+    /* Modify */
+    void SetWeight(MyGraphicsLineItem *garc, int weight);
 
     /* Other Function */
     void ClearVisit();
+    void ResetDistance();
     void DFS(int strtID);
     void DFS(MyGraphicsVexItem *strtVex){DFS(GetIdOf(strtVex));}
     void BFS(int strtID);
     void BFS(MyGraphicsVexItem *strtVex){BFS(GetIdOf(strtVex));}
-
+    void Dijkstra(int strtID);
+    void Dijkstra(MyGraphicsVexItem *strtVex){Dijkstra(GetIdOf(strtVex));}
 
     int Type() const { return type; }
 };

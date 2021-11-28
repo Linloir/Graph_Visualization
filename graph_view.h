@@ -90,6 +90,7 @@ public:
     MyGraphicsView(int _type = UDG, QWidget *parent = nullptr);
 
     MyGraphicsVexItem* selectedVex();
+    MyGraphicsLineItem* selectedArc();
 
 signals:
     void mouseMoved(QPointF position);
@@ -128,7 +129,9 @@ private:
         ON_RIGHT_CLICK  = 0b00000100,
         ON_SELECTED     = 0b00001000,
         ON_LINING       = 0b00010000,
-        ON_MENU         = 0b00100000
+        ON_MENU         = 0b00100000,
+        ON_VISIT        = 0b01000000,
+        ON_ACCESS       = 0b10000000
     };
 
     static unsigned int internalID;
@@ -138,6 +141,7 @@ private:
     QBrush regBrush = QBrush(QColor(58, 143, 192));
     QBrush selBrush = QBrush(QColor(208, 90, 110));
     QBrush visitedBrush = QBrush(QColor(93, 172, 129));
+    QBrush accessBrush = QBrush(QColor(152, 109, 178));
 
     QPointF center;
     qreal radius;
@@ -147,6 +151,11 @@ private:
 
     QVector<MyGraphicsLineItem*> linesStartWith;
     QVector<MyGraphicsLineItem*> linesEndWith;
+
+    /* For display temporary tag */
+    QGraphicsSimpleTextItem *tag = nullptr;
+    QString hintText = "";
+    QFont hintFont = QFont("DengXian", 12, QFont::Bold);
 
     void displayText();
 
@@ -168,13 +177,14 @@ public:
 
     void select();
     void visit(bool visited = true);
+    void access(const QString &hint = "", bool isAccess = true);
     //void setText(const QString & text);
     void addStartLine(MyGraphicsLineItem *line){linesStartWith.push_back(line);}
     void removeStartLine(MyGraphicsLineItem *line){linesStartWith.remove(linesStartWith.indexOf(line));}
     void addEndLine(MyGraphicsLineItem *line){linesEndWith.push_back(line);}
     void removeEndLine(MyGraphicsLineItem *line){linesEndWith.remove(linesEndWith.indexOf(line));}
 
-    bool equalTo(MyGraphicsVexItem *v){qDebug() << id << " " << v->id;return id == v->id;}
+    bool equalTo(MyGraphicsVexItem *v){return id == v->id;}
     int type() const override {return Type;}
     qreal getRadius() {return radius;}
 
@@ -205,14 +215,19 @@ private:
         ON_LEFT_CLICK   = 0b00000010,
         ON_RIGHT_CLICK  = 0b00000100,
         ON_SELECTED     = 0b00001000,
-        ON_MENU         = 0b00100000
+        ON_MENU         = 0b00100000,
+        ON_VISIT        = 0b01000000
     };
 
+    /* basic data */
     bool hasDirection;
     MyGraphicsVexItem *startVex;
     MyGraphicsVexItem *endVex;
+    QGraphicsLineItem *line1 = nullptr;
+    QGraphicsLineItem *line2 = nullptr;
     QGraphicsPathItem *arrow = nullptr;
-    QString text;
+    QGraphicsSimpleTextItem *textItem = nullptr;
+    QString text = "";
 
     int state = UNDEFINED;
 
@@ -227,16 +242,21 @@ private:
     QColor defaultColor = QColor(125, 185, 222);
     QColor hoverColor = QColor(0, 98, 132);
     QColor selColor = QColor(208, 90, 110);
+    QColor visitColor = QColor(93, 172, 129);
+    QColor accessColor = QColor(178, 143, 206);
     QPen defaultPen;
-    QBrush defaultBrush;
     QPen curPen;
+    QFont textFont = QFont("DengXian", 12, QFont::Bold);
+    QColor textColor = QColor(0, 0, 0);
 
-    /* for calculation */
-    qreal angle;
+    /* for calculation and line rendering */
+    qreal angle = 0;
+    QPointF center;
     QPointF sP, eP, dP;
 
     void setLengthRate(qreal r=1);
     void drawLine();
+    void drawText();
     void drawArrow();
     void delArrow();
 
@@ -245,8 +265,8 @@ private:
     void hoverOutEffect();
     void onClickEffect();
     void onReleaseEffect();
-    void onSelectEffect(){}
-    void deSelectEffect(){}
+    void onSelectEffect();
+    void deSelectEffect();
 
 public:
     MyGraphicsLineItem(MyGraphicsVexItem *start, MyGraphicsVexItem *end, bool hasDir = false, QGraphicsItem *parent = nullptr);
@@ -259,18 +279,19 @@ public:
     void reverseDirection();
     void moveStart(MyGraphicsVexItem *start);
     void moveEnd(MyGraphicsVexItem *end);
-    //void setText(const QString & text);
+    void setText(const QString & _text);
     void setDirection(bool hasDir = true);
 
     /* effects */
-    void startAnimation(){}
-    void stopAnimation(){}
+    //void startAnimation(){}
+    //void stopAnimation(){}
 
     /* retrieve */
     MyGraphicsVexItem* stVex(){return startVex;}
     MyGraphicsVexItem* edVex(){return endVex;}
 
     void visit(bool visited = true);
+    void access();
 
     int type() const override {return Type;}
 

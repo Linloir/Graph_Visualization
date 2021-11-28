@@ -155,6 +155,10 @@ MyGraphicsVexItem* MyGraphicsView::selectedVex(){
     return selItem ? (selItem->type() == QGraphicsItem::UserType + 1 ? (MyGraphicsVexItem*)selItem : nullptr) : nullptr;
 }
 
+MyGraphicsLineItem* MyGraphicsView::selectedArc(){
+    return selItem ? (selItem->type() == QGraphicsItem::UserType + 2 ? (MyGraphicsLineItem*)selItem : nullptr) : nullptr;
+}
+
 void MyGraphicsView::setHover(bool in){
     if(in)
         mouseState |= ON_HOVER;
@@ -186,7 +190,6 @@ void MyGraphicsView::startLine(MyGraphicsVexItem *startVex){
 }
 
 void MyGraphicsView::setMenu(QGraphicsItem *target, bool display){
-    qDebug() << "setting";
     if(display){
         itemState |= SEL;
         selItem = target;
@@ -268,18 +271,6 @@ void MyGraphicsVexItem::hoverOutEffect(){
 
 void MyGraphicsVexItem::onClickEffect(){
     stopAnimation();
-    //QTimeLine *timeLine = new QTimeLine(30, this);
-    //timeLine->setFrameRange(0, 30);
-    //QEasingCurve curve = QEasingCurve::OutBounce;
-    //qreal baseRadius = this->rect().width() / 2;
-    //qreal difRadius = 0.75 * radius - baseRadius;
-    //connect(timeLine, &QTimeLine::frameChanged, [=](int frame){
-    //    qreal curProgress = curve.valueForProgress(frame / 30.0);
-    //    qreal curRadius = baseRadius + difRadius * curProgress;
-    //    this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
-    //});
-    //curAnimation = timeLine;
-    //startAnimation();
     qreal curRadius = 0.75 * radius;
     this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
 }
@@ -318,6 +309,8 @@ void MyGraphicsVexItem::move(QPointF position){
     QPointF displacement = position - (this->scenePos() + this->rect().center());
     this->setRect(QRectF(this->rect().x() + displacement.x(), this->rect().y() + displacement.y(), this->rect().width(), this->rect().height()));
     center = center + displacement;
+    if(tag)
+        tag->moveBy(displacement.x(), displacement.y());
     for(int i = 0; i < linesStartWith.size(); i++)
         linesStartWith[i]->moveStart(this);
     for(int i = 0; i < linesEndWith.size(); i++)
@@ -339,6 +332,8 @@ void MyGraphicsVexItem::estConnection(MyGraphicsView* view){
 void MyGraphicsVexItem::select(){
     state = ON_SELECTED;
     this->setBrush(selBrush);
+    if(tag)
+        tag->setBrush(selBrush);
     emit selected(this);
 }
 
@@ -350,8 +345,11 @@ void MyGraphicsVexItem::visit(bool visited){
         QEasingCurve curveIn = QEasingCurve::InElastic;
         QEasingCurve curveOut = QEasingCurve::OutBounce;
         connect(visitEffect, &QTimeLine::frameChanged, this, [=](int frame){
-            if(frame > 100)
+            if(frame > 100){
                 this->setBrush(visitedBrush);
+                if(tag)
+                    tag->setBrush(visitedBrush);
+            }
             if(frame < 100){
                 qreal curProgress = curveIn.valueForProgress(frame / 100.0);
                 qreal curRadius = radius + 0.3 * radius * curProgress;
@@ -366,10 +364,59 @@ void MyGraphicsVexItem::visit(bool visited){
         emit addAnimation(visitEffect);
     }
     else{
-        if(state & ON_SELECTED)
+        if(state & ON_SELECTED){
             this->setBrush(selBrush);
-        else
+            if(tag)
+                tag->setBrush(selBrush);
+        }
+        else{
             this->setBrush(regBrush);
+            if(tag)
+                tag->setBrush(regBrush);
+        }
+    }
+}
+
+void MyGraphicsVexItem::access(const QString &hint, bool isAccess){
+    if(isAccess){
+        hintText = hint;
+        if(!tag)
+            tag = new QGraphicsSimpleTextItem;
+        tag->setText(hintText);
+        tag->setPos(center + QPointF(radius, radius) * 1.3);
+        tag->setFont(hintFont);
+        tag->setZValue(this->zValue());
+        QTimeLine *accessEffect = new QTimeLine;
+        accessEffect->setDuration(1000);
+        accessEffect->setFrameRange(0, 200);
+        QEasingCurve curveIn = QEasingCurve::InElastic;
+        QEasingCurve curveOut = QEasingCurve::OutBounce;
+        connect(accessEffect, &QTimeLine::frameChanged, this, [=](int frame){
+            if(frame > 100){
+                this->setBrush(accessBrush);
+                this->tag->setBrush(accessBrush);
+                this->scene()->addItem(tag);
+            }
+            if(frame < 100){
+                qreal curProgress = curveIn.valueForProgress(frame / 100.0);
+                qreal curRadius = radius + 0.3 * radius * curProgress;
+                this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
+                this->tag->setScale(1 + curProgress * 0.2);
+            }
+            else{
+                qreal curProgress = curveOut.valueForProgress((frame - 100.0) / 100.0);
+                qreal curRadius = 1.3 * radius - 0.3 * radius * curProgress;
+                this->setRect(QRectF(center.x() - curRadius, center.y() - curRadius, curRadius * 2, curRadius * 2));
+                this->tag->setScale(1.2 - curProgress * 0.2);
+            }
+        });
+        emit addAnimation(accessEffect);
+    }
+    else{
+        hintText = "";
+        if(tag)
+            scene()->removeItem(tag);
+        tag = nullptr;
     }
 }
 
@@ -494,6 +541,7 @@ MyGraphicsLineItem::MyGraphicsLineItem(MyGraphicsVexItem *start, MyGraphicsVexIt
     defaultPen.setCapStyle(capStyle);
     defaultPen.setColor(defaultColor);
     curPen = defaultPen;
+    //textItem = new QGraphicsSimpleTextItem(text);
 }
 
 void MyGraphicsLineItem::refrshLine(){
@@ -502,13 +550,85 @@ void MyGraphicsLineItem::refrshLine(){
 }
 
 void MyGraphicsLineItem::drawLine(){
+    //draw invisible line
     this->setLine(sP.x(), sP.y(), eP.x(), eP.y());
-    this->setPen(curPen);
+    //this->setPen(curPen);
+    QPen bgPen;
+    bgPen.setColor(QColor(255, 255, 255, 0));
+    bgPen.setWidth(lineWidth + 5);
+    this->setPen(bgPen);
+
+    if(line1){
+        scene()->removeItem(line1);
+        line1 = nullptr;
+    }
+    if(line2){
+        scene()->removeItem(line2);
+        line2 = nullptr;
+    }
+
+    center = (startVex->scenePos() + startVex->rect().center() + endVex->scenePos() + endVex->rect().center())/2;
+
+    drawText();
+
+    if(text != "" && (eP - center).x() * (sP - center).x() <= 0){
+        qreal dx = 0;
+        qreal dy = 0;
+        int f1 = 1, f2 = 1;
+        if(textItem->boundingRect().width() != 0){
+            if(abs(textItem->boundingRect().height() / textItem->boundingRect().width()) < abs(tan(angle))){
+                dx = (textItem->boundingRect().height() + 10) / (2 * tan(angle));
+                dy = (textItem->boundingRect().height() + 10) / 2;
+                f2 = angle > 0 ? -1 : 1;
+            }
+            else{
+                dy = (textItem->boundingRect().width() + 10) * tan(angle) / 2;
+                dx = (textItem->boundingRect().width() + 10) / 2;
+                f1 = tan(angle) < 0 ? -1 : 1;
+                f2 = angle >= 0 ? -1 : 1;
+            }
+        }
+        dx *= f1 * f2;
+        dy *= f1 * f2;
+        QGraphicsLineItem *newLine1 = new QGraphicsLineItem(sP.x(), sP.y(), center.x() + dx, center.y() + dy);
+        QGraphicsLineItem *newLine2 = new QGraphicsLineItem(center.x() - dx, center.y() - dy, eP.x(), eP.y());
+
+        newLine1->setZValue(this->zValue() - 1);
+        newLine2->setZValue(this->zValue() - 1);
+        newLine1->setPen(curPen);
+        newLine2->setPen(curPen);
+
+        scene()->addItem(newLine1);
+        scene()->addItem(newLine2);
+        line1 = newLine1;
+        line2 = newLine2;
+    }
+    else{
+        QGraphicsLineItem *newLine = new QGraphicsLineItem(sP.x(), sP.y(), eP.x(), eP.y());
+        newLine->setPen(curPen);
+        newLine->setZValue(this->zValue() - 1);
+        this->scene()->addItem(newLine);
+        line1 = newLine;
+    }
 
     if(hasDirection){
         delArrow();
         drawArrow();
     }
+}
+
+void MyGraphicsLineItem::drawText(){
+    if(textItem){
+        this->scene()->removeItem(textItem);
+        textItem = nullptr;
+    }
+    QGraphicsSimpleTextItem *t = new QGraphicsSimpleTextItem(text);
+    t->setFont(textFont);
+    t->setPos(center - QPointF(t->boundingRect().width(), t->boundingRect().height()) / 2);
+    QColor c = curPen.color();
+    t->setBrush(c.darker(150));
+    this->scene()->addItem(t);
+    textItem = t;
 }
 
 void MyGraphicsLineItem::drawArrow(){
@@ -579,38 +699,47 @@ void MyGraphicsLineItem::moveEnd(MyGraphicsVexItem *end){
     refrshLine();
 }
 
+void MyGraphicsLineItem::setText(const QString &_text){
+    text = _text;
+    refrshLine();
+}
+
 void MyGraphicsLineItem::setDirection(bool hasDir){
     hasDirection = hasDir;
     refrshLine();
 }
 
 void MyGraphicsLineItem::hoverInEffect(){
-    QPen pen = this->pen();
-    pen.setWidth(lineWidth + 1);
-    pen.setColor(hoverColor);
-    this->setPen(pen);
-    if(arrow != nullptr)
-        arrow->setPen(pen);
+    curPen.setWidth(lineWidth + 1);
+    //curPen.setColor(hoverColor);
+    refrshLine();
 }
 
 void MyGraphicsLineItem::hoverOutEffect(){
-    this->setPen(curPen);
-    if(arrow != nullptr)
-        arrow->setPen(curPen);
+    curPen.setWidth(lineWidth);
+    //curPen.setColor(state & ON_VISIT ? visitColor : state & ON_SELECTED ? selColor : defaultColor);
+    refrshLine();
 }
 
 void MyGraphicsLineItem::onClickEffect(){
-    QPen pen = this->pen();
-    pen.setWidth(lineWidth - 0.5);
-    this->setPen(pen);
-    if(arrow != nullptr)
-        arrow->setPen(pen);
+    curPen.setWidth(lineWidth - 1);
+    refrshLine();
 }
 
 void MyGraphicsLineItem::onReleaseEffect(){
-    this->setPen(curPen);
-    if(arrow != nullptr)
-        arrow->setPen(curPen);
+    curPen.setWidth(lineWidth);
+    curPen.setColor(selColor);
+    refrshLine();
+}
+
+void MyGraphicsLineItem::onSelectEffect(){
+    curPen.setColor(selColor);
+    refrshLine();
+}
+
+void MyGraphicsLineItem::deSelectEffect(){
+    curPen = defaultPen;
+    refrshLine();
 }
 
 void MyGraphicsLineItem::onMouseMove(QPointF position){
@@ -631,6 +760,8 @@ void MyGraphicsLineItem::onMouseMove(QPointF position){
 void MyGraphicsLineItem::onLeftClick(QPointF position){
     if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK))
         return;
+    if(state & ON_VISIT)
+        visit(false);
     if(this->contains(position)){
         emit selected(this);
         onClickEffect();
@@ -650,12 +781,13 @@ void MyGraphicsLineItem::onLeftClick(QPointF position){
         else
             state &= UNDEFINED;
     }
-    visit(false);
 }
 
 void MyGraphicsLineItem::onRightClick(QPointF position){
     if(state & (ON_LEFT_CLICK | ON_RIGHT_CLICK))
         return;
+    if(state & ON_VISIT)
+        visit(false);
     if(this->contains(position)){
         emit selected(this);
         onClickEffect();
@@ -675,7 +807,6 @@ void MyGraphicsLineItem::onRightClick(QPointF position){
         else
             state &= UNDEFINED;
     }
-    visit(false);
 }
 
 void MyGraphicsLineItem::onMouseRelease(){
@@ -694,10 +825,13 @@ void MyGraphicsLineItem::onMouseRelease(){
 
 void MyGraphicsLineItem::visit(bool visited){
     if(visited){
+        state |= ON_VISIT;
         QTimeLine *visitEffect = new QTimeLine;
         visitEffect->setDuration(1000);
         visitEffect->setFrameRange(0, 200);
-        QEasingCurve curve = QEasingCurve::InOutQuad;QGraphicsLineItem *newLine = new QGraphicsLineItem(sP.x(), sP.y(), eP.x(), eP.y());
+        QEasingCurve curve = QEasingCurve::InOutQuad;
+        QGraphicsLineItem *newLine1 = new QGraphicsLineItem(line1->line());
+        QGraphicsLineItem *newLine2 = line2 ? new QGraphicsLineItem(line2->line()) : nullptr;
         connect(visitEffect, &QTimeLine::stateChanged, this, [=](){
             if(visitEffect->state() == QTimeLine::Running){
                 QPen pen;
@@ -705,18 +839,23 @@ void MyGraphicsLineItem::visit(bool visited){
                 pen.setStyle(Qt::DashLine);
                 pen.setBrush(QColor(58, 143, 192, 100));
                 pen.setCapStyle(Qt::RoundCap);
-                newLine->setPen(pen);
-                scene()->addItem(newLine);
-                newLine->setZValue(this->zValue() - 1);
+                newLine1->setPen(pen);
+                newLine1->setZValue(this->zValue() - 2);
+                scene()->addItem(newLine1);
+                if(newLine2){
+                    newLine2->setPen(pen);
+                    newLine2->setZValue(this->zValue() - 2);
+                    scene()->addItem(newLine2);
+                }
             }
             else{
-                scene()->removeItem(newLine);
+                scene()->removeItem(newLine1);
+                if(newLine2)
+                    scene()->removeItem(newLine2);
             }
         });
         connect(visitEffect, &QTimeLine::frameChanged, this, [=](int frame){
-            QPen pen = this->pen();
-            pen.setColor(QColor(93, 172, 129));
-            curPen = pen;
+            this->curPen.setColor(visitColor);
             qreal curProgress = curve.valueForProgress(frame / 200.0);
             setLengthRate(curProgress);
             drawLine();
@@ -724,7 +863,47 @@ void MyGraphicsLineItem::visit(bool visited){
         emit addAnimation(visitEffect);
     }
     else{
+        state &= ~ON_VISIT;
         curPen = defaultPen;
         refrshLine();
     }
+}
+
+void MyGraphicsLineItem::access(){
+    QTimeLine *accessEffect = new QTimeLine;
+    accessEffect->setDuration(1000);
+    accessEffect->setFrameRange(0, 200);
+    QEasingCurve curve = QEasingCurve::InOutQuad;
+    QGraphicsLineItem *newLine1 = new QGraphicsLineItem(line1->line());
+    QGraphicsLineItem *newLine2 = line2 ? new QGraphicsLineItem(line2->line()) : nullptr;
+    connect(accessEffect, &QTimeLine::stateChanged, this, [=](){
+        if(accessEffect->state() == QTimeLine::Running){
+            QPen pen;
+            pen.setWidth(3);
+            pen.setStyle(Qt::DashLine);
+            pen.setBrush(QColor(58, 143, 192, 100));
+            pen.setCapStyle(Qt::RoundCap);
+            newLine1->setPen(pen);
+            newLine1->setZValue(this->zValue() - 2);
+            scene()->addItem(newLine1);
+            if(newLine2){
+                newLine2->setPen(pen);
+                newLine2->setZValue(this->zValue() - 2);
+                scene()->addItem(newLine2);
+            }
+        }
+        else{
+            scene()->removeItem(newLine1);
+            if(newLine2)
+                scene()->removeItem(newLine2);
+        }
+    });
+    connect(accessEffect, &QTimeLine::frameChanged, this, [=](int frame){
+        this->curPen.setColor(accessColor);
+        qreal curProgress = curve.valueForProgress(frame / 200.0);
+        setLengthRate(curProgress);
+        drawLine();
+    });
+    emit addAnimation(accessEffect);
+    state |= ON_SELECTED;
 }

@@ -16,6 +16,8 @@ MainWindow::MainWindow(QWidget *parent)
         MyCanvas *newCanvas = new MyCanvas(MyCanvas::UDG);
         connect(ui->pushButton, SIGNAL(clicked()), newCanvas, SLOT(dfs()));
         connect(ui->pushButton_2, SIGNAL(clicked()), newCanvas, SLOT(bfs()));
+        connect(ui->spinBox, SIGNAL(valueChanged(int)), newCanvas, SLOT(setWeight(int)));
+        connect(ui->dijkstra, SIGNAL(clicked()), newCanvas, SLOT(dijkstra()));
         ui->canvasLayout->addWidget(newCanvas);
         ui->del->setEnabled(true);
         connect(ui->del, &QPushButton::clicked, newCanvas, [=](){
@@ -31,6 +33,8 @@ MainWindow::MainWindow(QWidget *parent)
         MyCanvas *newCanvas = new MyCanvas(MyCanvas::DG);
         connect(ui->pushButton, SIGNAL(clicked()), newCanvas, SLOT(dfs()));
         connect(ui->pushButton_2, SIGNAL(clicked()), newCanvas, SLOT(bfs()));
+        connect(ui->spinBox, SIGNAL(valueChanged(int)), newCanvas, SLOT(setWeight(int)));
+        connect(ui->dijkstra, SIGNAL(clicked()), newCanvas, SLOT(dijkstra()));
         ui->canvasLayout->addWidget(newCanvas);
         ui->del->setEnabled(true);
         connect(ui->del, &QPushButton::clicked, newCanvas, [=](){

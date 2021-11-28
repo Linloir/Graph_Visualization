@@ -15,6 +15,13 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout">
+    <item row="4" column="0">
+     <widget class="QPushButton" name="pushButton_2">
+      <property name="text">
+       <string>bfs</string>
+      </property>
+     </widget>
+    </item>
     <item row="1" column="0">
      <widget class="QPushButton" name="del">
       <property name="text">
@@ -23,13 +30,6 @@
      </widget>
     </item>
     <item row="3" column="0">
-     <widget class="QPushButton" name="pushButton_2">
-      <property name="text">
-       <string>bfs</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="0">
      <widget class="QPushButton" name="pushButton">
       <property name="text">
        <string>dfs</string>
@@ -58,6 +58,20 @@
         </layout>
        </item>
       </layout>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="QSpinBox" name="spinBox">
+      <property name="maximum">
+       <number>9999</number>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="0">
+     <widget class="QPushButton" name="dijkstra">
+      <property name="text">
+       <string>dijkstra</string>
+      </property>
      </widget>
     </item>
    </layout>

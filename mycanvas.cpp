@@ -37,3 +37,18 @@ void MyCanvas::bfs(){
         view->hasVisitedItem = true;
     }
 }
+
+void MyCanvas::dijkstra(){
+    MyGraphicsVexItem *strtVex = view->selectedVex();
+    if(strtVex){
+        g->Dijkstra(strtVex);
+        view->hasVisitedItem = true;
+    }
+}
+
+void MyCanvas::setWeight(int w){
+    MyGraphicsLineItem *arc = view->selectedArc();
+    if(arc){
+        g->SetWeight(arc, w);
+    }
+}

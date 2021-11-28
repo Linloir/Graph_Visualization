@@ -27,6 +27,8 @@ private slots:
     //void delArc(MyGraphicsLineItem*);
     void dfs();
     void bfs();
+    void dijkstra();
+    void setWeight(int w);
 
 };
 
