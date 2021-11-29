@@ -380,10 +380,8 @@ void MyGraphicsVexItem::visit(bool visited){
 
 void MyGraphicsVexItem::access(const QString &hint, bool isAccess){
     if(isAccess){
-        hintText = hint;
         if(!tag)
             tag = new QGraphicsSimpleTextItem;
-        tag->setText(hintText);
         tag->setPos(center + QPointF(radius, radius) * 1.3);
         tag->setFont(hintFont);
         tag->setZValue(this->zValue());
@@ -397,6 +395,8 @@ void MyGraphicsVexItem::access(const QString &hint, bool isAccess){
                 this->setBrush(accessBrush);
                 this->tag->setBrush(accessBrush);
                 this->scene()->addItem(tag);
+                tag->setText(hint);
+                this->hintText = hint;
             }
             if(frame < 100){
                 qreal curProgress = curveIn.valueForProgress(frame / 100.0);

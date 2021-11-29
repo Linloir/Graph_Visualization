@@ -268,6 +268,8 @@ void ALGraph::Dijkstra(int strtID){
         //Find adjacent
         for(ALArc *p = vexList[minVexID].firstArc; p != nullptr; p = p->nextArc){
             if(!vexList[p->eVexID].visited){
+                if(GetIdOf(p->gArc->edVex()) != p->eVexID)
+                    p->gArc->reverseDirection();
                 p->access();
                 if(vexList[p->eVexID].info->distance == VexInfo::INF ||
                         vexList[p->eVexID].info->distance > vexList[minVexID].info->distance + p->weight){
